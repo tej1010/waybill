@@ -2,6 +2,7 @@ import { useState } from "react";
 import { downloadEwayBillPdf, updateVehicleDetails } from "../api/ewayBill.js";
 import { EWB_NUMBER_LENGTH, parseEwbInput } from "../utils/ewbNumber.js";
 import {
+  DEFAULT_PART_B_REASON_CODE,
   isRoadMode,
   reasonRemForPartB,
   requiresTransDocNo,
@@ -15,19 +16,13 @@ const TRANSPORT_MODES = [
   { value: "2", label: "Rail" },
 ];
 
-const REASON_OPTIONS = [
-  { code: "1", label: "Due to Breakdown" },
-  { code: "2", label: "Due to Transshipment" },
-  { code: "3", label: "Others" },
-];
-
 export default function UpdateVehicleForm({ getAccessToken }) {
   const [ewbNo, setEwbNo] = useState("");
   const [transMode, setTransMode] = useState("");
   const [vehicleNo, setVehicleNo] = useState("");
   const [transDocNo, setTransDocNo] = useState("");
   const [fromPlace, setFromPlace] = useState("");
-  const [reasonCode, setReasonCode] = useState("1");
+  const reasonCode = DEFAULT_PART_B_REASON_CODE;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [errorDetails, setErrorDetails] = useState("");
@@ -190,20 +185,6 @@ export default function UpdateVehicleForm({ getAccessToken }) {
             maxLength={50}
             required
           />
-
-          <label htmlFor="reasonCode">Reason</label>
-          <select
-            id="reasonCode"
-            value={reasonCode}
-            onChange={(e) => setReasonCode(e.target.value)}
-            required
-          >
-            {REASON_OPTIONS.map((o) => (
-              <option key={o.code} value={o.code}>
-                {o.label}
-              </option>
-            ))}
-          </select>
         </>
       )}
 

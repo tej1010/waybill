@@ -1,6 +1,7 @@
 import { validateGstin } from "../services/ewayAuth.js";
 import { updatePartBVehicle } from "../services/updatePartB.js";
 import {
+  DEFAULT_PART_B_REASON_CODE,
   isRoadMode,
   reasonRemForPartB,
   requiresTransDocNo,
@@ -27,20 +28,6 @@ import {
   getSession,
   saveSession,
 } from "./sessionStore.js";
-
-const REASON_MAP = {
-  1: "1",
-  2: "2",
-  3: "3",
-  reason_1: "1",
-  reason_2: "2",
-  reason_3: "3",
-  breakdown: "1",
-  transshipment: "2",
-  transhipment: "2",
-  others: "3",
-  other: "3",
-};
 
 const MODE_MAP = {
   1: "1",
@@ -117,22 +104,63 @@ async function sendModeMenu(phone) {
   ]);
 }
 
-async function sendReasonMenu(phone) {
-  await sendInteractiveButtons(phone, "Select *reason* for update:", [
-    { id: "reason_1", title: "Breakdown" },
-    { id: "reason_2", title: "Transshipment" },
-    { id: "reason_3", title: "Others" },
-  ]);
+async function executePartBUpdate(phone, session) {
+  const partB = session.draft.partB;
+  const reasonCode = DEFAULT_PART_B_REASON_CODE;
+
+  session = (await ensureWhatsAppEwbToken(phone)) || session;
+  const accessToken = session.auth.access_token;
+
+  await replyText(phone, "⏳ Updating Part B…");
+
+  const updateBody = {
+    ewbNo: Number(partB.ewbNo),
+    transMode: partB.transMode,
+    fromPlace: partB.fromPlace,
+    reasonCode,
+    reasonRem: reasonRemForPartB(partB.transMode, reasonCode),
+    transDocDate: todayTransDocDate(),
+  };
+
+  if (isRoadMode(partB.transMode)) {
+    updateBody.vehicleNo = partB.vehicleNo;
+    updateBody.vehicleType = "R";
+  } else if (requiresTransDocNo(partB.transMode)) {
+    updateBody.transDocNo = partB.transDocNo;
+  }
+
+  const result = await updatePartBVehicle(partB.ewbNo, accessToken, updateBody);
+
+  session.state = STATES.MENU;
+  session.draft.partB = {};
+  saveSession(phone, session);
+
+  await replyText(
+    phone,
+    `✅ *Part B updated*\n\n` +
+      `E-Way Bill: *${partB.ewbNo}*\n` +
+      `Valid upto: ${result.validUpto || "—"}\n` +
+      `Updated: ${result.vehUpdDate || "—"}`
+  );
+
+  await replyText(phone, "⏳ Sending your e-Way Bill PDF…");
+  try {
+    await sendEwayBillPdf(phone, partB.ewbNo, accessToken);
+  } catch (pdfErr) {
+    logger.error("whatsapp", "PDF send failed", { message: pdfErr.message });
+    await replyText(
+      phone,
+      "Part B was updated, but the PDF could not be sent. Try again from the menu or contact support."
+    );
+  }
+
+  await sendMainMenu(phone, session.auth.username);
+  return session;
 }
 
 function parseMode(input) {
   const key = normalizeLower(input);
   return MODE_MAP[key] || MODE_MAP[normalize(input)] || null;
-}
-
-function parseReason(input) {
-  const key = normalizeLower(input);
-  return REASON_MAP[key] || REASON_MAP[normalize(input)] || null;
 }
 
 function isMenuPartB(input) {
@@ -442,9 +470,8 @@ export async function handleIncomingMessage(phone, messageText) {
             "Enter *Transport document number* (e.g. RR123456789 for Rail):"
           );
         } else {
-          session.state = STATES.PART_B_REASON;
           saveSession(phone, session);
-          await sendReasonMenu(phone);
+          session = await executePartBUpdate(phone, session);
         }
         break;
 
@@ -454,68 +481,14 @@ export async function handleIncomingMessage(phone, messageText) {
           break;
         }
         session.draft.partB.transDocNo = text.toUpperCase();
-        session.state = STATES.PART_B_REASON;
         saveSession(phone, session);
-        await sendReasonMenu(phone);
+        session = await executePartBUpdate(phone, session);
         break;
 
-      case STATES.PART_B_REASON: {
-        const reasonCode = parseReason(text);
-        if (!reasonCode) {
-          await sendReasonMenu(phone);
-          break;
-        }
-
-        const partB = session.draft.partB;
-        session = (await ensureWhatsAppEwbToken(phone)) || session;
-        const accessToken = session.auth.access_token;
-
-        await replyText(phone, "⏳ Updating Part B…");
-
-        const updateBody = {
-          ewbNo: Number(partB.ewbNo),
-          transMode: partB.transMode,
-          fromPlace: partB.fromPlace,
-          reasonCode,
-          reasonRem: reasonRemForPartB(partB.transMode, reasonCode),
-          transDocDate: todayTransDocDate(),
-        };
-
-        if (isRoadMode(partB.transMode)) {
-          updateBody.vehicleNo = partB.vehicleNo;
-          updateBody.vehicleType = "R";
-        } else if (requiresTransDocNo(partB.transMode)) {
-          updateBody.transDocNo = partB.transDocNo;
-        }
-
-        const result = await updatePartBVehicle(partB.ewbNo, accessToken, updateBody);
-
-        session.state = STATES.MENU;
-        session.draft.partB = {};
+      case STATES.PART_B_REASON:
         saveSession(phone, session);
-
-        await replyText(
-          phone,
-          `✅ *Part B updated*\n\n` +
-            `E-Way Bill: *${partB.ewbNo}*\n` +
-            `Valid upto: ${result.validUpto || "—"}\n` +
-            `Updated: ${result.vehUpdDate || "—"}`
-        );
-
-        await replyText(phone, "⏳ Sending your e-Way Bill PDF…");
-        try {
-          await sendEwayBillPdf(phone, partB.ewbNo, accessToken);
-        } catch (pdfErr) {
-          logger.error("whatsapp", "PDF send failed", { message: pdfErr.message });
-          await replyText(
-            phone,
-            "Part B was updated, but the PDF could not be sent. Try again from the menu or contact support."
-          );
-        }
-
-        await sendMainMenu(phone, session.auth.username);
+        session = await executePartBUpdate(phone, session);
         break;
-      }
 
       default:
         if (session.auth) {

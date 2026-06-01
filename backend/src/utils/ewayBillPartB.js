@@ -9,6 +9,8 @@ export const PART_B_REASONS = {
   3: "Others",
 };
 
+export const DEFAULT_PART_B_REASON_CODE = "2";
+
 export function isRoadMode(transMode) {
   return String(transMode) === TRANS_MODE_ROAD;
 }
