@@ -1,5 +1,6 @@
 import { handleIncomingMessage } from "./conversation.js";
 import { extractMessageInput } from "./messageInput.js";
+import { normalizePhone } from "./phoneRegistryUtils.js";
 import { logWebhookPost } from "./webhookLog.js";
 import { logger } from "../utils/logger.js";
 
@@ -43,7 +44,7 @@ export async function processWebhookBody(body) {
       continue;
     }
 
-    const phone = message.from;
+    const phone = normalizePhone(message.from);
 
     logger.info("whatsapp", "▶ Incoming message", { from: phone, input, kind });
 

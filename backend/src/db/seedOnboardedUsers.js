@@ -1,8 +1,7 @@
 import { ONBOARDED_USERS } from "../config/onboardedUsers.js";
 import { logger } from "../utils/logger.js";
-import { validateGstin } from "../services/ewayAuth.js";
 import { isMongoConnected } from "./mongodb.js";
-import { savePhoneMapping } from "../whatsapp/phoneRegistry.js";
+import { syncOnboardedToRegistry } from "../whatsapp/onboardLookup.js";
 import { normalizePhone } from "../whatsapp/phoneRegistryUtils.js";
 
 function seedingEnabled() {
@@ -32,34 +31,15 @@ export async function seedOnboardedUsers() {
 
   for (const entry of ONBOARDED_USERS) {
     const phone = normalizePhone(entry?.phone);
-    const username = entry?.username?.trim();
-    const password = entry?.password?.trim();
-    const gstin = entry?.gstin?.trim()?.toUpperCase();
-
     if (!phone || phone.length < 10) {
       logger.warn("mongo", "Onboard skip — invalid phone", { phone: entry?.phone });
       skipped += 1;
       continue;
     }
-    if (!username || !password || !gstin) {
-      logger.warn("mongo", "Onboard skip — missing credentials", { phone });
-      skipped += 1;
-      continue;
-    }
-    if (!validateGstin(gstin)) {
-      logger.warn("mongo", "Onboard skip — invalid GSTIN", { phone, gstin });
-      skipped += 1;
-      continue;
-    }
 
-    try {
-      await savePhoneMapping(phone, { username, password, gstin });
-      logger.info("mongo", "Onboarded user seeded", { phone, username, gstin });
-      seeded += 1;
-    } catch (err) {
-      logger.error("mongo", "Onboard seed failed", { phone, message: err.message });
-      failed += 1;
-    }
+    const ok = await syncOnboardedToRegistry(phone);
+    if (ok) seeded += 1;
+    else failed += 1;
   }
 
   logger.info("mongo", "Onboard user seed complete", { seeded, skipped, failed });

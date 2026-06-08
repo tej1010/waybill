@@ -12,6 +12,8 @@ import { verifyEwayBillNumber } from "../services/verifyEwayBill.js";
 import { logger } from "../utils/logger.js";
 import { hasLoggedInAuth } from "../services/ewbSession.js";
 import { autoLoginFromRegistry, completeWhatsAppLogin } from "./autoLogin.js";
+import { findOnboardedUser } from "./onboardLookup.js";
+import { normalizePhone } from "./phoneRegistryUtils.js";
 import { ensureWhatsAppEwbToken } from "./ewbSessionRefresh.js";
 import { getAccountForPhone, savePhoneMapping } from "./phoneRegistry.js";
 import { sendEwayBillPdf } from "./sendPdf.js";
@@ -226,6 +228,14 @@ async function handleGreeting(phone, session) {
     return;
   }
 
+  if (findOnboardedUser(phone)) {
+    await replyText(
+      phone,
+      "❌ Auto-login failed. Please contact support to verify your E-Way Bill portal User ID, password, and GSTIN."
+    );
+    return;
+  }
+
   if (session?.auth) {
     await handleLogout(phone);
     return;
@@ -237,6 +247,7 @@ async function handleGreeting(phone, session) {
 }
 
 export async function handleIncomingMessage(phone, messageText) {
+  phone = normalizePhone(phone);
   const text = normalize(messageText);
   const lower = normalizeLower(messageText);
 

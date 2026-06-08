@@ -3,8 +3,11 @@ import { processWebhookBody } from "../whatsapp/processWebhook.js";
 import { checkWhatsAppTokenHealth, isWhatsAppConfigured } from "../whatsapp/whatsappApi.js";
 import { summarizeWebhookPayload } from "../whatsapp/webhookLog.js";
 import { handleIncomingMessage } from "../whatsapp/conversation.js";
+import { seedOnboardedUsers } from "../db/seedOnboardedUsers.js";
 import { getRegistryStats } from "../db/registryStats.js";
 import { isMongoConnected } from "../db/mongodb.js";
+import { syncOnboardedToRegistry } from "../whatsapp/onboardLookup.js";
+import { normalizePhone } from "../whatsapp/phoneRegistryUtils.js";
 import { logger } from "../utils/logger.js";
 
 const router = Router();
@@ -98,8 +101,22 @@ router.post("/simulate", async (req, res) => {
   return res.json({ ok: true, ...result });
 });
 
+router.post("/sync-onboard", async (req, res) => {
+  try {
+    const phone = req.body?.phone ? normalizePhone(req.body.phone) : null;
+    if (phone) {
+      const synced = await syncOnboardedToRegistry(phone);
+      return res.json({ ok: synced, phone, synced });
+    }
+    const result = await seedOnboardedUsers();
+    return res.json({ ok: result.failed === 0, ...result });
+  } catch (err) {
+    return res.status(500).json({ ok: false, message: err.message });
+  }
+});
+
 router.post("/test", async (req, res) => {
-  const phone = (req.body?.phone || process.env.WHATSAPP_TEST_PHONE || "").replace(/\D/g, "");
+  const phone = normalizePhone(req.body?.phone || process.env.WHATSAPP_TEST_PHONE || "");
   const text = req.body?.text || "hi";
 
   if (!phone) {
