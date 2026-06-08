@@ -3,10 +3,10 @@
 // phone: digits only with country code, no + (e.g. 919876543210)
 
 export const ONBOARDED_USERS = [
-  // {
-  //   phone: "919876543210",
-  //   username: "eway_portal_user_id",
-  //   password: "portal_password",
-  //   gstin: "29XXXXXXXXXX1ZX",
-  // },
+  {
+    phone: "917990453769",
+    username: "KAMERIYA",
+    password: "Tpsa@4468",
+    gstin: "24CNPPR0029E1Z3",
+  },
 ];
