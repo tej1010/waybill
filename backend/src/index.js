@@ -11,6 +11,7 @@ import ewayBillRouter from "./routes/ewayBill.js";
 import whatsappRouter from "./routes/whatsapp.js";
 import { connectMongoDB, isMongoConnected } from "./db/mongodb.js";
 import { migrateJsonRegistryToMongo } from "./db/migratePhoneRegistry.js";
+import { seedOnboardedUsers } from "./db/seedOnboardedUsers.js";
 import { getRegistryStats } from "./db/registryStats.js";
 import { bootstrapWhatsApp } from "./whatsapp/whatsappSetup.js";
 import { startWhatsAppEwbRefreshScheduler } from "./whatsapp/ewbSessionRefresh.js";
@@ -116,6 +117,7 @@ const server = app.listen(PORT, async () => {
   try {
     await connectMongoDB();
     await migrateJsonRegistryToMongo();
+    await seedOnboardedUsers();
     const registry = await getRegistryStats();
     logger.info("mongo", "User registry ready", {
       accounts: registry.accounts,

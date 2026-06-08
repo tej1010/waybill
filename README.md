@@ -102,10 +102,15 @@ curl -X POST http://localhost:5001/api/whatsapp/test \
 
 | Step | User action |
 |------|-------------|
-| Start | Send `hi` |
-| Login | User ID → Password → GSTIN |
-| Menu | `1` = Update Part B, `2` = Logout |
-| Part B | EWB no → Mode (1 Road / 2 Rail / 3 Air) → fields per mode → Reason 1–3 |
+| Start | Send `hi` — auto-login if phone is saved in MongoDB |
+| Login | User ID → Password → GSTIN (skipped if already onboarded) |
+| Menu | Update Part B, Logout |
+| Logout | Ends session only; credentials stay saved — send `hi` to continue |
+| Part B | EWB no → Mode (Road / Rail / Air) → fields per mode → auto Transshipment reason |
+
+### Pre-onboard users (admin)
+
+Add entries in `backend/src/config/onboardedUsers.js` on the server (phone, username, password, gstin). On startup they are saved to MongoDB (encrypted). Existing users not in the list are unchanged. Set `SEED_ONBOARDED_USERS=false` to disable.
 
 Same Part B rules as the web app (date & vehicle type set automatically for Road).
 

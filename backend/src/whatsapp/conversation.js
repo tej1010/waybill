@@ -13,11 +13,7 @@ import { logger } from "../utils/logger.js";
 import { hasLoggedInAuth } from "../services/ewbSession.js";
 import { autoLoginFromRegistry, completeWhatsAppLogin } from "./autoLogin.js";
 import { ensureWhatsAppEwbToken } from "./ewbSessionRefresh.js";
-import {
-  deletePhoneMapping,
-  getAccountForPhone,
-  savePhoneMapping,
-} from "./phoneRegistry.js";
+import { getAccountForPhone, savePhoneMapping } from "./phoneRegistry.js";
 import { sendEwayBillPdf } from "./sendPdf.js";
 import { sendInteractiveButtons, sendWhatsAppText } from "./whatsappApi.js";
 import {
@@ -179,8 +175,8 @@ function isMenuLogin(input) {
 }
 
 async function handleLogout(phone) {
-  await deletePhoneMapping(phone);
   deleteSession(phone);
+  await replyText(phone, "You are logged out.\n\nSend *hi* or tap *Login* to continue.");
   await sendLoginButton(phone);
 }
 
@@ -197,6 +193,8 @@ async function tryAutoLoginAndMenu(phone) {
 }
 
 async function startLogin(phone) {
+  if (await tryAutoLoginAndMenu(phone)) return;
+
   const session = resetToLogin(createEmptySession());
   saveSession(phone, session);
   await replyText(phone, welcomeMessage());
@@ -365,8 +363,8 @@ export async function handleIncomingMessage(phone, messageText) {
           await replyText(
             phone,
             phoneCount > 1
-              ? `✅ Login successful.\n\nSaved: phone, User ID, GSTIN (password encrypted).\n${phoneCount} devices on this account. Log out removes only this phone.`
-              : "✅ Login successful.\n\nSaved: phone, User ID, GSTIN (password encrypted). Linked until you log out."
+              ? `✅ Login successful.\n\nSaved on this device (${phoneCount} phones on this account).\nLogout ends the session — send *hi* to continue.`
+              : "✅ Login successful.\n\nSaved on this device. Logout ends the session — send *hi* to continue."
           );
           await sendMainMenu(phone, auth.username);
         } catch (err) {
