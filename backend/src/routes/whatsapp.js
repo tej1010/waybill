@@ -6,8 +6,11 @@ import { handleIncomingMessage } from "../whatsapp/conversation.js";
 import { seedOnboardedUsers } from "../db/seedOnboardedUsers.js";
 import { getRegistryStats } from "../db/registryStats.js";
 import { isMongoConnected } from "../db/mongodb.js";
-import { syncOnboardedToRegistry } from "../whatsapp/onboardLookup.js";
+import { findOnboardedUser, syncOnboardedToRegistry } from "../whatsapp/onboardLookup.js";
+import { getPhoneMapping } from "../whatsapp/phoneRegistry.js";
 import { normalizePhone } from "../whatsapp/phoneRegistryUtils.js";
+import { loginTaxPayer } from "../services/ewayAuth.js";
+import { ewbErrorCode } from "../utils/ewbAuthErrors.js";
 import { logger } from "../utils/logger.js";
 
 const router = Router();
@@ -115,6 +118,84 @@ router.post("/sync-onboard", async (req, res) => {
   }
 });
 
+router.post("/test-auto-login", async (req, res) => {
+  const phone = normalizePhone(req.body?.phone || "");
+  if (!phone) {
+    return res.status(400).json({ message: "Provide phone in body (e.g. 917990453769)" });
+  }
+
+  try {
+    await syncOnboardedToRegistry(phone);
+    const credentials =
+      (await getPhoneMapping(phone).catch(() => null)) ||
+      (() => {
+        const entry = findOnboardedUser(phone);
+        if (!entry) return null;
+        return {
+          username: entry.username?.trim(),
+          password: entry.password?.trim(),
+          gstin: entry.gstin?.trim()?.toUpperCase(),
+        };
+      })();
+
+    if (!credentials?.username) {
+      return res.status(404).json({
+        ok: false,
+        phone,
+        message: "No onboarded user or registry entry for this phone",
+      });
+    }
+
+    const auth = await loginTaxPayer(credentials);
+    return res.json({
+      ok: true,
+      phone,
+      username: auth.username,
+      gstin: auth.gstin,
+      message: "Portal login OK — auto-login should work after user sends hi",
+    });
+  } catch (err) {
+    return res.status(err.status || 500).json({
+      ok: false,
+      phone,
+      message: err.message,
+      errorCode: ewbErrorCode(err),
+      details: err.data?.data?.error || err.data?.message || null,
+    });
+  }
+});
+
+async function checkPortalLoginForPhone(phone) {
+  await syncOnboardedToRegistry(phone);
+  const credentials =
+    (await getPhoneMapping(phone).catch(() => null)) ||
+    (() => {
+      const entry = findOnboardedUser(phone);
+      if (!entry) return null;
+      return {
+        username: entry.username?.trim(),
+        password: entry.password?.trim(),
+        gstin: entry.gstin?.trim()?.toUpperCase(),
+      };
+    })();
+
+  if (!credentials?.username) {
+    return { checked: false, reason: "not_onboarded" };
+  }
+
+  try {
+    const auth = await loginTaxPayer(credentials);
+    return { checked: true, ok: true, username: auth.username, gstin: auth.gstin };
+  } catch (err) {
+    return {
+      checked: true,
+      ok: false,
+      message: err.message,
+      errorCode: ewbErrorCode(err),
+    };
+  }
+}
+
 router.post("/test", async (req, res) => {
   const phone = normalizePhone(req.body?.phone || process.env.WHATSAPP_TEST_PHONE || "");
   const text = req.body?.text || "hi";
@@ -128,8 +209,16 @@ router.post("/test", async (req, res) => {
   logger.info("whatsapp", "Manual test trigger", { phone, text });
 
   try {
+    const portalLogin = await checkPortalLoginForPhone(phone);
     await handleIncomingMessage(phone, text);
-    return res.json({ ok: true, message: "Processed — check logs and WhatsApp" });
+    return res.json({
+      ok: true,
+      message:
+        portalLogin.checked && !portalLogin.ok
+          ? "Bot processed message, but E-Way Bill portal login failed — see portalLogin"
+          : "Processed — check logs and WhatsApp",
+      portalLogin,
+    });
   } catch (err) {
     return res.status(500).json({ ok: false, message: err.message });
   }

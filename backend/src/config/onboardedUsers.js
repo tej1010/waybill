@@ -5,7 +5,7 @@
 export const ONBOARDED_USERS = [
   {
     phone: "917990453769",
-    username: "KAMERIYA",
+    username: "KAMERIYA_API_KAM",
     password: "Tpsa@4468",
     gstin: "24CNPPR0029E1Z3",
   },

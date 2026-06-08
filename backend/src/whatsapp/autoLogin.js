@@ -18,7 +18,7 @@ export async function autoLoginFromRegistry(phone) {
     credentials = await getPhoneMapping(phone).catch(() => null);
   }
 
-  if (!credentials) return null;
+  if (!credentials) return { session: null, error: null };
 
   try {
     const auth = await loginTaxPayer(credentials);
@@ -28,10 +28,15 @@ export async function autoLoginFromRegistry(phone) {
       phone: key,
       username: auth.username,
     });
-    return session;
+    return { session, error: null };
   } catch (err) {
-    logger.warn("whatsapp", "Auto-login failed", { phone: key, message: err.message });
-    return null;
+    logger.warn("whatsapp", "Auto-login failed", {
+      phone: key,
+      message: err.message,
+      status: err.status,
+      sandboxError: err.data?.data?.error || err.data?.message || null,
+    });
+    return { session: null, error: err };
   }
 }
 

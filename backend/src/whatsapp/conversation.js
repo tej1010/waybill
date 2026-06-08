@@ -14,6 +14,7 @@ import { hasLoggedInAuth } from "../services/ewbSession.js";
 import { autoLoginFromRegistry, completeWhatsAppLogin } from "./autoLogin.js";
 import { findOnboardedUser } from "./onboardLookup.js";
 import { normalizePhone } from "./phoneRegistryUtils.js";
+import { formatEwbAuthFailure } from "../utils/ewbAuthErrors.js";
 import { ensureWhatsAppEwbToken } from "./ewbSessionRefresh.js";
 import { getAccountForPhone, savePhoneMapping } from "./phoneRegistry.js";
 import { sendEwayBillPdf } from "./sendPdf.js";
@@ -183,19 +184,31 @@ async function handleLogout(phone) {
 }
 
 async function tryAutoLoginAndMenu(phone) {
-  const session = await autoLoginFromRegistry(phone);
-  if (!session?.auth) return false;
+  const { session, error } = await autoLoginFromRegistry(phone);
+  if (session?.auth) {
+    session.state = STATES.MENU;
+    session.draft.partB = {};
+    saveSession(phone, session);
+    await replyText(phone, `Welcome back, *${session.auth.username}*!`);
+    await sendMainMenu(phone, session.auth.username);
+    return { ok: true };
+  }
 
-  session.state = STATES.MENU;
-  session.draft.partB = {};
-  saveSession(phone, session);
-  await replyText(phone, `Welcome back, *${session.auth.username}*!`);
-  await sendMainMenu(phone, session.auth.username);
-  return true;
+  return { ok: false, error };
+}
+
+async function replyAutoLoginFailure(phone, error) {
+  if (findOnboardedUser(phone) || error) {
+    await replyText(phone, formatEwbAuthFailure(error));
+    return true;
+  }
+  return false;
 }
 
 async function startLogin(phone) {
-  if (await tryAutoLoginAndMenu(phone)) return;
+  const result = await tryAutoLoginAndMenu(phone);
+  if (result.ok) return;
+  if (await replyAutoLoginFailure(phone, result.error)) return;
 
   const session = resetToLogin(createEmptySession());
   saveSession(phone, session);
@@ -224,17 +237,9 @@ async function handleGreeting(phone, session) {
     return;
   }
 
-  if (await tryAutoLoginAndMenu(phone)) {
-    return;
-  }
-
-  if (findOnboardedUser(phone)) {
-    await replyText(
-      phone,
-      "❌ Auto-login failed. Please contact support to verify your E-Way Bill portal User ID, password, and GSTIN."
-    );
-    return;
-  }
+  const autoLogin = await tryAutoLoginAndMenu(phone);
+  if (autoLogin.ok) return;
+  if (await replyAutoLoginFailure(phone, autoLogin.error)) return;
 
   if (session?.auth) {
     await handleLogout(phone);
@@ -276,9 +281,10 @@ export async function handleIncomingMessage(phone, messageText) {
   }
 
   if (!session) {
-    if (await tryAutoLoginAndMenu(phone)) {
-      return;
-    }
+    const autoLogin = await tryAutoLoginAndMenu(phone);
+    if (autoLogin.ok) return;
+    if (await replyAutoLoginFailure(phone, autoLogin.error)) return;
+
     session = resetToLogin(createEmptySession());
     saveSession(phone, session);
     await replyText(phone, welcomeMessage());
