@@ -9,6 +9,7 @@ import { getSandboxBaseUrl } from "./config/sandbox.js";
 import authRouter from "./routes/auth.js";
 import ewayBillRouter from "./routes/ewayBill.js";
 import whatsappRouter from "./routes/whatsapp.js";
+import statsRouter from "./routes/stats.js";
 import { connectMongoDB, isMongoConnected } from "./db/mongodb.js";
 import { migrateJsonRegistryToMongo } from "./db/migratePhoneRegistry.js";
 import { seedOnboardedUsers } from "./db/seedOnboardedUsers.js";
@@ -91,6 +92,7 @@ app.get("/api/health", async (_req, res) => {
 app.use("/api/auth", authRouter);
 app.use("/api/eway-bill", ewayBillRouter);
 app.use("/api/whatsapp", whatsappRouter);
+app.use("/api/stats", statsRouter);
 
 function attachFrontend() {
   const indexHtml = path.join(frontendDist, "index.html");

@@ -42,8 +42,8 @@ export default function Dashboard({ auth, onLogout, onAuthUpdate }) {
         </div>
       </dl>
 
-      <UpdateVehicleForm getAccessToken={resolveAccessToken} />
-      <ExtendValidityForm getAccessToken={resolveAccessToken} />
+      <UpdateVehicleForm getAccessToken={resolveAccessToken} user={auth} />
+      <ExtendValidityForm getAccessToken={resolveAccessToken} user={auth} />
       <DownloadPdfCard getAccessToken={resolveAccessToken} />
     </div>
   );

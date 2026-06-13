@@ -3,7 +3,9 @@ import { callEwayBillApi, parseEwayBillResult } from "../services/ewayBillClient
 import { fetchEwayBillDetails } from "../services/fetchEwayBill.js";
 import { buildEwayBillPdfBuffer } from "../services/ewayBillPdfFlow.js";
 import { renderEwayBillHtml } from "../services/ewayBillHtml.js";
+import { recordEwbOperation } from "../db/ewbOperations.js";
 import { logger } from "../utils/logger.js";
+import { userContextFromRequest } from "../utils/requestUser.js";
 import { updatePartBVehicle } from "../services/updatePartB.js";
 import { EWB_INCORRECT_MESSAGE, validateEwbNumber } from "../utils/ewbNumber.js";
 
@@ -155,6 +157,15 @@ router.put("/:ewbNo/vehicle", async (req, res) => {
       });
     }
 
+    const user = userContextFromRequest(req);
+    await recordEwbOperation({
+      username: user.username,
+      gstin: user.gstin,
+      ewbNo,
+      operationType: "part_b_update",
+      source: "web",
+    });
+
     return res.json({
       ...result,
       pdfUrl: `/api/eway-bill/${ewbNo}/pdf`,
@@ -211,6 +222,15 @@ router.post("/:ewbNo/extend", async (req, res) => {
         details: data,
       });
     }
+
+    const user = userContextFromRequest(req);
+    await recordEwbOperation({
+      username: user.username,
+      gstin: user.gstin,
+      ewbNo,
+      operationType: "extend_validity",
+      source: "web",
+    });
 
     return res.json({
       ewayBillNo: result?.data?.ewayBillNo,

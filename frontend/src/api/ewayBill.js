@@ -2,8 +2,11 @@ import { EWB_INCORRECT_MESSAGE, parseEwbInput } from "../utils/ewbNumber.js";
 
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
-function authHeaders(accessToken) {
-  return { authorization: accessToken };
+function authHeaders(accessToken, user) {
+  const headers = { authorization: accessToken };
+  if (user?.username) headers["X-Eway-Username"] = user.username;
+  if (user?.gstin) headers["X-Eway-Gstin"] = user.gstin;
+  return headers;
 }
 
 export async function verifyEwayBillNumber(ewbNo, accessToken) {
@@ -28,14 +31,14 @@ export async function verifyEwayBillNumber(ewbNo, accessToken) {
   return parsed.digits;
 }
 
-export async function updateVehicleDetails(ewbNo, accessToken, payload) {
+export async function updateVehicleDetails(ewbNo, accessToken, payload, user) {
   const url = `${API_BASE}/api/eway-bill/${ewbNo}/vehicle`;
 
   const response = await fetch(url, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
-      ...authHeaders(accessToken),
+      ...authHeaders(accessToken, user),
     },
     body: JSON.stringify(payload),
   });
@@ -52,14 +55,14 @@ export async function updateVehicleDetails(ewbNo, accessToken, payload) {
   return data;
 }
 
-export async function extendEwayBillValidity(ewbNo, accessToken, payload) {
+export async function extendEwayBillValidity(ewbNo, accessToken, payload, user) {
   const url = `${API_BASE}/api/eway-bill/${ewbNo}/extend`;
 
   const response = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...authHeaders(accessToken),
+      ...authHeaders(accessToken, user),
     },
     body: JSON.stringify(payload),
   });

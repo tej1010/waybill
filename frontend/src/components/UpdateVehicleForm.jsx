@@ -16,7 +16,7 @@ const TRANSPORT_MODES = [
   { value: "2", label: "Rail" },
 ];
 
-export default function UpdateVehicleForm({ getAccessToken }) {
+export default function UpdateVehicleForm({ getAccessToken, user }) {
   const [ewbNo, setEwbNo] = useState("");
   const [transMode, setTransMode] = useState("");
   const [vehicleNo, setVehicleNo] = useState("");
@@ -80,7 +80,7 @@ export default function UpdateVehicleForm({ getAccessToken }) {
     }
 
     try {
-      const result = await updateVehicleDetails(ewbDigits, accessToken, payload);
+      const result = await updateVehicleDetails(ewbDigits, accessToken, payload, user);
       setSuccess(result);
       try {
         await downloadEwayBillPdf(ewbDigits, accessToken);

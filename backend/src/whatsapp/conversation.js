@@ -15,6 +15,7 @@ import { autoLoginFromRegistry, completeWhatsAppLogin } from "./autoLogin.js";
 import { findOnboardedUser } from "./onboardLookup.js";
 import { normalizePhone } from "./phoneRegistryUtils.js";
 import { formatEwbAuthFailure } from "../utils/ewbAuthErrors.js";
+import { recordEwbOperation } from "../db/ewbOperations.js";
 import { ensureWhatsAppEwbToken } from "./ewbSessionRefresh.js";
 import { getAccountForPhone, savePhoneMapping } from "./phoneRegistry.js";
 import { sendEwayBillPdf } from "./sendPdf.js";
@@ -129,6 +130,14 @@ async function executePartBUpdate(phone, session) {
   }
 
   const result = await updatePartBVehicle(partB.ewbNo, accessToken, updateBody);
+
+  await recordEwbOperation({
+    username: session.auth?.username,
+    gstin: session.auth?.gstin,
+    ewbNo: partB.ewbNo,
+    operationType: "part_b_update",
+    source: "whatsapp",
+  });
 
   session.state = STATES.MENU;
   session.draft.partB = {};

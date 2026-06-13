@@ -15,4 +15,10 @@ export const ONBOARDED_USERS = [
     password: "Mahadev@99",
     gstin: "27AAZFK8654K1Z8",
   },
+  {
+    phone: "919265630571",
+    username: "KAMERIYA_API_KAM",
+    password: "Tpsa@4468",
+    gstin: "24CNPPR0029E1Z3",
+  },
 ];

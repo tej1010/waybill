@@ -6,6 +6,7 @@ let db = null;
 
 const ACCOUNTS_COLLECTION = "whatsapp_accounts";
 const PHONES_COLLECTION = "whatsapp_phones";
+const OPERATIONS_COLLECTION = "ewb_operations";
 
 export function getAccountsCollection() {
   if (!db) {
@@ -21,6 +22,13 @@ export function getPhonesCollection() {
   return db.collection(PHONES_COLLECTION);
 }
 
+export function getOperationsCollection() {
+  if (!db) {
+    throw new Error("MongoDB is not connected. Set MONGODB_URI in .env");
+  }
+  return db.collection(OPERATIONS_COLLECTION);
+}
+
 export function isMongoConnected() {
   return Boolean(db);
 }
@@ -31,6 +39,9 @@ async function ensureIndexes() {
   await getAccountsCollection().createIndex({ username: 1 });
   await getPhonesCollection().createIndex({ phone: 1 }, { unique: true });
   await getPhonesCollection().createIndex({ accountId: 1 });
+  await getOperationsCollection().createIndex({ createdAt: -1 });
+  await getOperationsCollection().createIndex({ username: 1, createdAt: -1 });
+  await getOperationsCollection().createIndex({ gstin: 1, createdAt: -1 });
 }
 
 export async function connectMongoDB() {

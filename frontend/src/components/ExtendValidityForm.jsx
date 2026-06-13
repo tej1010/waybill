@@ -30,7 +30,7 @@ const TRANSIT_TYPES = [
   { value: "O", label: "O — Others" },
 ];
 
-export default function ExtendValidityForm({ getAccessToken }) {
+export default function ExtendValidityForm({ getAccessToken, user }) {
   const [ewbNo, setEwbNo] = useState("");
   const [vehicleNo, setVehicleNo] = useState("");
   const [fromPlace, setFromPlace] = useState("");
@@ -98,7 +98,7 @@ export default function ExtendValidityForm({ getAccessToken }) {
     };
 
     try {
-      const result = await extendEwayBillValidity(ewbDigits, accessToken, payload);
+      const result = await extendEwayBillValidity(ewbDigits, accessToken, payload, user);
       setSuccess(result);
       try {
         await downloadEwayBillPdf(ewbDigits, accessToken);
