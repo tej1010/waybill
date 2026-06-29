@@ -15,7 +15,6 @@ import { migrateJsonRegistryToMongo } from "./db/migratePhoneRegistry.js";
 import { seedOnboardedUsers } from "./db/seedOnboardedUsers.js";
 import { getRegistryStats } from "./db/registryStats.js";
 import { bootstrapWhatsApp } from "./whatsapp/whatsappSetup.js";
-import { startWhatsAppEwbRefreshScheduler } from "./whatsapp/ewbSessionRefresh.js";
 import { checkWhatsAppTokenHealth } from "./whatsapp/whatsappApi.js";
 import { logger } from "./utils/logger.js";
 
@@ -160,8 +159,6 @@ const server = app.listen(PORT, async () => {
       : "(not set)",
     whatsappCanSend: tokenHealth.ok,
   });
-
-  startWhatsAppEwbRefreshScheduler();
 
   try {
     await bootstrapWhatsApp();

@@ -1,6 +1,5 @@
 const AUTH_STORAGE_KEY = "eway_auth";
 const REFRESH_CREDS_KEY = "eway_refresh";
-export const EWB_REFRESH_INTERVAL_MS = 60 * 60 * 1000;
 const EWB_EXPIRY_BUFFER_MS = 2 * 60 * 1000;
 
 export function getStoredAuth() {
@@ -43,17 +42,8 @@ export function getRefreshCredentials() {
 
 export function needsTokenRefresh(auth) {
   if (!auth?.access_token) return true;
-
-  const lastRefresh = Number(auth.lastRefreshedAt || 0);
-  if (!lastRefresh || Date.now() - lastRefresh >= EWB_REFRESH_INTERVAL_MS) {
-    return true;
-  }
-
-  if (auth.expiry && Date.now() >= Number(auth.expiry) - EWB_EXPIRY_BUFFER_MS) {
-    return true;
-  }
-
-  return false;
+  if (!auth.expiry) return false;
+  return Date.now() >= Number(auth.expiry) - EWB_EXPIRY_BUFFER_MS;
 }
 
 const API_BASE = import.meta.env.VITE_API_URL || "";

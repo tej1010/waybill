@@ -2,8 +2,6 @@ import { Router } from "express";
 import { loginTaxPayer, validateGstin } from "../services/ewayAuth.js";
 import { logger } from "../utils/logger.js";
 
-const REFRESH_INTERVAL_MS = 60 * 60 * 1000;
-
 const router = Router();
 
 function validateLoginBody(body) {
@@ -47,7 +45,6 @@ router.post("/login", async (req, res) => {
       expiry: result.expiry,
       transaction_id: result.transaction_id,
       lastRefreshedAt: Date.now(),
-      refreshIntervalMs: REFRESH_INTERVAL_MS,
     });
   } catch (err) {
     logger.error("auth", "Login error", {
@@ -90,7 +87,6 @@ router.post("/refresh", async (req, res) => {
       expiry: result.expiry,
       transaction_id: result.transaction_id,
       lastRefreshedAt: Date.now(),
-      refreshIntervalMs: REFRESH_INTERVAL_MS,
     });
   } catch (err) {
     logger.error("auth", "Token refresh error", {
