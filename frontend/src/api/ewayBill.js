@@ -55,6 +55,29 @@ export async function updateVehicleDetails(ewbNo, accessToken, payload, user) {
   return data;
 }
 
+export async function updateEwbTransporter(ewbNo, accessToken, payload, user) {
+  const url = `${API_BASE}/api/eway-bill/${ewbNo}/transporter`;
+
+  const response = await fetch(url, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(accessToken, user),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const err = new Error(data.message || "Failed to update transporter");
+    err.details = data.details;
+    throw err;
+  }
+
+  return data;
+}
+
 export async function extendEwayBillValidity(ewbNo, accessToken, payload, user) {
   const url = `${API_BASE}/api/eway-bill/${ewbNo}/extend`;
 

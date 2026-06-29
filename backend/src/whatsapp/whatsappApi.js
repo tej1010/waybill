@@ -101,6 +101,26 @@ export async function sendWhatsAppText(to, text) {
   });
 }
 
+export async function sendInteractiveList(to, bodyText, buttonText, rows) {
+  const actionRows = rows.slice(0, 10).map((row) => ({
+    id: String(row.id).slice(0, 200),
+    title: String(row.title).slice(0, 24),
+    ...(row.description ? { description: String(row.description).slice(0, 72) } : {}),
+  }));
+
+  return sendWhatsAppPayload(to, {
+    type: "interactive",
+    interactive: {
+      type: "list",
+      body: { text: bodyText.slice(0, 1024) },
+      action: {
+        button: String(buttonText).slice(0, 20),
+        sections: [{ title: "Options", rows: actionRows }],
+      },
+    },
+  });
+}
+
 export async function sendInteractiveButtons(to, bodyText, buttons) {
   const actionButtons = buttons.slice(0, 3).map((btn) => ({
     type: "reply",

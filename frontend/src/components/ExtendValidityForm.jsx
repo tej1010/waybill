@@ -38,7 +38,10 @@ export default function ExtendValidityForm({ getAccessToken, user }) {
   const [fromPincode, setFromPincode] = useState("");
   const [remainingDistance, setRemainingDistance] = useState("");
   const [transDocNo, setTransDocNo] = useState("");
-  const [transDocDate, setTransDocDate] = useState("");
+  const [transDocDate, setTransDocDate] = useState(() => {
+    const d = new Date();
+    return d.toISOString().slice(0, 10);
+  });
   const [transMode, setTransMode] = useState("1");
   const [extnRsnCode, setExtnRsnCode] = useState("1");
   const [extnRemarks, setExtnRemarks] = useState("");
@@ -78,6 +81,9 @@ export default function ExtendValidityForm({ getAccessToken, user }) {
 
     const ewbDigits = parsed.digits;
 
+    const [yyyy, mm, dd] = transDocDate.split("-");
+    const formattedTransDocDate = `${dd}/${mm}/${yyyy}`;
+
     const payload = {
       ewbNo: Number(ewbDigits),
       vehicleNo: vehicleNo.trim().toUpperCase(),
@@ -86,7 +92,7 @@ export default function ExtendValidityForm({ getAccessToken, user }) {
       fromPincode: Number(fromPincode),
       remainingDistance: Number(remainingDistance),
       transDocNo: transDocNo.trim(),
-      transDocDate: transDocDate.trim(),
+      transDocDate: formattedTransDocDate,
       transMode,
       extnRsnCode: Number(extnRsnCode),
       extnRemarks: extnRemarks.trim(),
@@ -123,7 +129,7 @@ export default function ExtendValidityForm({ getAccessToken, user }) {
     <form className="update-form extend-form" onSubmit={handleSubmit}>
       <h3>Extend e-Way Bill validity</h3>
       <p className="form-hint">
-        Extend validity up to 8 hours before or after expiry (based on remaining distance).
+        Extend validity via transporter API — up to 8 hours before or after expiry.
       </p>
 
       <label htmlFor="extEwbNo">E-Way Bill number (12 digits)</label>
@@ -262,11 +268,10 @@ export default function ExtendValidityForm({ getAccessToken, user }) {
           <label htmlFor="extTransDocDate">Transport doc date</label>
           <input
             id="extTransDocDate"
-            type="text"
+            type="date"
             value={transDocDate}
             onChange={(e) => setTransDocDate(e.target.value)}
-            placeholder="DD/MM/YYYY"
-            pattern="[0-3][0-9]/[0-1][0-9]/[2][0][0-9]{2}"
+            required
           />
         </div>
       </div>

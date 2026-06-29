@@ -486,6 +486,12 @@
   border-top: 1px solid #e2e8f0;
 }
 
+.transporter-form {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #e2e8f0;
+}
+
 .download-pdf-card {
   margin-top: 1.5rem;
   padding-top: 1.5rem;

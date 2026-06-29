@@ -1,5 +1,7 @@
 import { validateGstin } from "../services/ewayAuth.js";
+import { extendEwayBillValidity } from "../services/extendValidity.js";
 import { updatePartBVehicle } from "../services/updatePartB.js";
+import { updateTransporter } from "../services/updateTransporter.js";
 import {
   DEFAULT_PART_B_REASON_CODE,
   isRoadMode,
@@ -8,6 +10,14 @@ import {
   todayTransDocDate,
 } from "../utils/ewayBillPartB.js";
 import { EWB_INCORRECT_MESSAGE, EWB_NUMBER_LENGTH, parseEwbInput } from "../utils/ewbNumber.js";
+import {
+  EXTN_REASONS,
+  parseExtendReasonInput,
+  parseExtendTransModeInput,
+  todayTransDocDate as extendTodayDate,
+  validateTransDocDate,
+} from "../utils/ewayExtend.js";
+import { normalizeTransporterId, validateTransporterId } from "../utils/transporterId.js";
 import { verifyEwayBillNumber } from "../services/verifyEwayBill.js";
 import { logger } from "../utils/logger.js";
 import { hasLoggedInAuth } from "../services/ewbSession.js";
@@ -19,7 +29,7 @@ import { recordEwbOperation } from "../db/ewbOperations.js";
 import { ensureWhatsAppEwbToken } from "./ewbSessionRefresh.js";
 import { getAccountForPhone, savePhoneMapping } from "./phoneRegistry.js";
 import { sendEwayBillPdf } from "./sendPdf.js";
-import { sendInteractiveButtons, sendWhatsAppText } from "./whatsappApi.js";
+import { sendInteractiveButtons, sendInteractiveList, sendWhatsAppText } from "./whatsappApi.js";
 import {
   STATES,
   createEmptySession,
@@ -63,7 +73,7 @@ function loginFailedMessage() {
 
 function resetToLogin(session) {
   session.state = STATES.LOGIN_USERNAME;
-  session.draft = { login: {}, partB: {} };
+  session.draft = { login: {}, partB: {}, transporter: {}, extend: {} };
   session.auth = null;
   return session;
 }
@@ -86,11 +96,14 @@ async function sendLoginButton(phone) {
 }
 
 async function sendMainMenu(phone, username) {
-  await sendInteractiveButtons(
+  await sendInteractiveList(
     phone,
     `✅ Logged in as *${username}*\n\nWhat would you like to do?`,
+    "Choose action",
     [
       { id: "menu_part_b", title: "Update Part B" },
+      { id: "menu_update_transporter", title: "Update Transporter" },
+      { id: "menu_extend_validity", title: "Extend Validity" },
       { id: "menu_logout", title: "Logout" },
     ]
   );
@@ -166,6 +179,150 @@ async function executePartBUpdate(phone, session) {
   return session;
 }
 
+async function executeUpdateTransporter(phone, session) {
+  const transporterDraft = session.draft.transporter;
+
+  session = (await ensureWhatsAppEwbToken(phone)) || session;
+  const accessToken = session.auth.access_token;
+
+  await replyText(phone, "⏳ Updating transporter…");
+
+  const result = await updateTransporter(transporterDraft.ewbNo, accessToken, {
+    transporterId: transporterDraft.transporterId,
+  });
+
+  await recordEwbOperation({
+    username: session.auth?.username,
+    gstin: session.auth?.gstin,
+    ewbNo: transporterDraft.ewbNo,
+    operationType: "update_transporter",
+    source: "whatsapp",
+  });
+
+  session.state = STATES.MENU;
+  session.draft.transporter = {};
+  saveSession(phone, session);
+
+  await replyText(
+    phone,
+    `✅ *Transporter updated*\n\n` +
+      `E-Way Bill: *${transporterDraft.ewbNo}*\n` +
+      `Transporter: *${result.transporterId}*\n` +
+      `Updated: ${result.transUpdateDate || "—"}`
+  );
+
+  await replyText(phone, "⏳ Sending your e-Way Bill PDF…");
+  try {
+    await sendEwayBillPdf(phone, transporterDraft.ewbNo, accessToken);
+  } catch (pdfErr) {
+    logger.error("whatsapp", "PDF send failed after transporter update", {
+      message: pdfErr.message,
+    });
+    await replyText(
+      phone,
+      "Transporter was updated, but the PDF could not be sent. Try again from the menu or contact support."
+    );
+  }
+
+  await sendMainMenu(phone, session.auth.username);
+  return session;
+}
+
+async function sendExtendDateMenu(phone) {
+  const today = extendTodayDate();
+  await sendInteractiveButtons(
+    phone,
+    `Select *transport document date*:\n\nToday is *${today}*`,
+    [
+      { id: "date_today", title: "Use today" },
+      { id: "date_custom", title: "Enter date" },
+    ]
+  );
+}
+
+async function sendExtendModeMenu(phone) {
+  await sendInteractiveList(phone, "Select *transport mode*:", "Select mode", [
+    { id: "extend_mode_1", title: "Road", description: "Mode 1" },
+    { id: "extend_mode_2", title: "Rail", description: "Mode 2" },
+    { id: "extend_mode_3", title: "Air", description: "Mode 3" },
+    { id: "extend_mode_5", title: "In Transit", description: "Mode 5" },
+  ]);
+}
+
+async function sendExtendReasonMenu(phone) {
+  await sendInteractiveList(phone, "Select *extension reason*:", "Select reason", [
+    { id: "extn_1", title: "Natural calamity" },
+    { id: "extn_2", title: "Law and order" },
+    { id: "extn_3", title: "Transshipment" },
+    { id: "extn_4", title: "Accident" },
+    { id: "extn_5", title: "Others" },
+  ]);
+}
+
+async function executeExtendValidity(phone, session) {
+  const ext = session.draft.extend;
+
+  session = (await ensureWhatsAppEwbToken(phone)) || session;
+  const accessToken = session.auth.access_token;
+
+  await replyText(phone, "⏳ Extending E-Way Bill validity…");
+
+  const payload = {
+    ewbNo: Number(ext.ewbNo),
+    vehicleNo: ext.vehicleNo,
+    fromPlace: ext.fromPlace,
+    fromState: Number(ext.fromState),
+    fromPincode: Number(ext.fromPincode),
+    remainingDistance: Number(ext.remainingDistance),
+    transDocDate: ext.transDocDate,
+    transMode: ext.transMode,
+    extnRsnCode: Number(ext.extnRsnCode),
+    extnRemarks: ext.extnRemarks,
+    consignmentStatus: "T",
+    transitType: "R",
+    transDocNo: ext.transDocNo || ext.vehicleNo || "",
+    addressLine1: ext.fromPlace,
+    addressLine2: ext.fromPlace,
+    addressLine3: ext.fromPlace,
+  };
+
+  const result = await extendEwayBillValidity(ext.ewbNo, accessToken, payload);
+
+  await recordEwbOperation({
+    username: session.auth?.username,
+    gstin: session.auth?.gstin,
+    ewbNo: ext.ewbNo,
+    operationType: "extend_validity",
+    source: "whatsapp",
+  });
+
+  session.state = STATES.MENU;
+  session.draft.extend = {};
+  saveSession(phone, session);
+
+  await replyText(
+    phone,
+    `✅ *Validity extended*\n\n` +
+      `E-Way Bill: *${ext.ewbNo}*\n` +
+      `Valid upto: ${result.validUpto || "—"}\n` +
+      `Updated: ${result.updatedDate || "—"}`
+  );
+
+  await replyText(phone, "⏳ Sending your e-Way Bill PDF…");
+  try {
+    await sendEwayBillPdf(phone, ext.ewbNo, accessToken);
+  } catch (pdfErr) {
+    logger.error("whatsapp", "PDF send failed after extend", { message: pdfErr.message });
+    await replyText(
+      phone,
+      "Validity was extended, but the PDF could not be sent. Try again from the menu or contact support."
+    );
+  }
+
+  await sendMainMenu(phone, session.auth.username);
+  return session;
+}
+
 function parseMode(input) {
   const key = normalizeLower(input);
   return MODE_MAP[key] || MODE_MAP[normalize(input)] || null;
@@ -174,6 +331,21 @@ function parseMode(input) {
 function isMenuPartB(input) {
   const k = normalizeLower(input);
   return k === "1" || k === "menu_part_b" || k.includes("part b") || k.includes("partb");
+}
+
+function isMenuUpdateTransporter(input) {
+  const k = normalizeLower(input);
+  return k === "menu_update_transporter" || k.includes("update transporter");
+}
+
+function isMenuExtendValidity(input) {
+  const k = normalizeLower(input);
+  return (
+    k === "menu_extend_validity" ||
+    k.includes("extend validity") ||
+    k.includes("extend eway") ||
+    k.includes("extend e-way")
+  );
 }
 
 function isMenuLogout(input) {
@@ -420,12 +592,233 @@ export async function handleIncomingMessage(phone, messageText) {
             phone,
             `Enter *E-Way Bill number* (${EWB_NUMBER_LENGTH} digits, numbers only):`
           );
+        } else if (isMenuUpdateTransporter(text)) {
+          session.state = STATES.UPDATE_TRANSPORTER_EWB;
+          session.draft.transporter = {};
+          saveSession(phone, session);
+          await replyText(
+            phone,
+            `Enter *E-Way Bill number* (${EWB_NUMBER_LENGTH} digits):`
+          );
+        } else if (isMenuExtendValidity(text)) {
+          session.state = STATES.EXTEND_EWB;
+          session.draft.extend = {};
+          saveSession(phone, session);
+          await replyText(
+            phone,
+            `Enter *E-Way Bill number* to extend (${EWB_NUMBER_LENGTH} digits):`
+          );
         } else if (isMenuLogout(text)) {
           await handleLogout(phone);
         } else {
           await sendMainMenu(phone, session.auth.username);
         }
         break;
+
+      case STATES.EXTEND_EWB: {
+        const parsed = parseEwbInput(text);
+        if (parsed.error) {
+          await replyText(phone, `❌ ${parsed.error}`);
+          break;
+        }
+
+        await replyText(phone, "⏳ Verifying e-Way Bill number…");
+        try {
+          session = (await ensureWhatsAppEwbToken(phone)) || session;
+          await verifyEwayBillNumber(parsed.digits, session.auth.access_token);
+        } catch (err) {
+          const msg =
+            err.code === "EWB_NOT_FOUND" || err.message === EWB_INCORRECT_MESSAGE
+              ? EWB_INCORRECT_MESSAGE
+              : err.message;
+          await replyText(phone, `❌ ${msg}`);
+          break;
+        }
+
+        session.draft.extend.ewbNo = parsed.digits;
+        session.state = STATES.EXTEND_VEHICLE;
+        saveSession(phone, session);
+        await replyText(phone, "Enter *Vehicle number* (7–15 characters):");
+        break;
+      }
+
+      case STATES.EXTEND_VEHICLE:
+        if (text.length < 7 || text.length > 15) {
+          await replyText(phone, "Vehicle number must be 7–15 characters. Try again:");
+          break;
+        }
+        session.draft.extend.vehicleNo = text.toUpperCase();
+        session.state = STATES.EXTEND_FROM_PLACE;
+        saveSession(phone, session);
+        await replyText(phone, "Enter *From place*:");
+        break;
+
+      case STATES.EXTEND_FROM_PLACE:
+        session.draft.extend.fromPlace = text;
+        session.state = STATES.EXTEND_FROM_STATE;
+        saveSession(phone, session);
+        await replyText(phone, "Enter *From state code* (2 digits, e.g. 29 for Karnataka):");
+        break;
+
+      case STATES.EXTEND_FROM_STATE: {
+        const stateCode = text.replace(/\D/g, "");
+        if (!stateCode || stateCode.length > 2 || Number(stateCode) > 99) {
+          await replyText(phone, "Enter a valid 1–2 digit state code (e.g. 29):");
+          break;
+        }
+        session.draft.extend.fromState = stateCode;
+        session.state = STATES.EXTEND_FROM_PINCODE;
+        saveSession(phone, session);
+        await replyText(phone, "Enter *From pincode* (6 digits):");
+        break;
+      }
+
+      case STATES.EXTEND_FROM_PINCODE: {
+        const pincode = text.replace(/\D/g, "");
+        if (pincode.length !== 6) {
+          await replyText(phone, "Pincode must be 6 digits. Try again:");
+          break;
+        }
+        session.draft.extend.fromPincode = pincode;
+        session.state = STATES.EXTEND_REMAINING_DISTANCE;
+        saveSession(phone, session);
+        await replyText(phone, "Enter *Remaining distance* (in km):");
+        break;
+      }
+
+      case STATES.EXTEND_REMAINING_DISTANCE: {
+        const distance = Number(text.replace(/[^\d.]/g, ""));
+        if (!distance || distance <= 0) {
+          await replyText(phone, "Enter a valid remaining distance in km:");
+          break;
+        }
+        session.draft.extend.remainingDistance = distance;
+        session.state = STATES.EXTEND_TRANS_DOC_DATE;
+        saveSession(phone, session);
+        await sendExtendDateMenu(phone);
+        break;
+      }
+
+      case STATES.EXTEND_TRANS_DOC_DATE: {
+        const lower = normalizeLower(text);
+        if (lower === "date_today" || lower === "use today") {
+          session.draft.extend.transDocDate = extendTodayDate();
+          session.state = STATES.EXTEND_TRANS_MODE;
+          saveSession(phone, session);
+          await sendExtendModeMenu(phone);
+          break;
+        }
+        if (lower === "date_custom" || lower === "enter date") {
+          session.state = STATES.EXTEND_TRANS_DOC_DATE_INPUT;
+          saveSession(phone, session);
+          await replyText(phone, "Enter date as *DD/MM/YYYY* (e.g. 12/06/2026):");
+          break;
+        }
+        await sendExtendDateMenu(phone);
+        break;
+      }
+
+      case STATES.EXTEND_TRANS_DOC_DATE_INPUT: {
+        const dateError = validateTransDocDate(text);
+        if (dateError) {
+          await replyText(phone, `❌ ${dateError}`);
+          break;
+        }
+        session.draft.extend.transDocDate = text.trim();
+        session.state = STATES.EXTEND_TRANS_MODE;
+        saveSession(phone, session);
+        await sendExtendModeMenu(phone);
+        break;
+      }
+
+      case STATES.EXTEND_TRANS_MODE: {
+        const mode = parseExtendTransModeInput(text);
+        if (!mode) {
+          await sendExtendModeMenu(phone);
+          break;
+        }
+        session.draft.extend.transMode = mode;
+        session.state = STATES.EXTEND_REASON;
+        saveSession(phone, session);
+        await sendExtendReasonMenu(phone);
+        break;
+      }
+
+      case STATES.EXTEND_REASON: {
+        const reason = parseExtendReasonInput(text);
+        if (!reason) {
+          await sendExtendReasonMenu(phone);
+          break;
+        }
+        session.draft.extend.extnRsnCode = reason;
+        session.state = STATES.EXTEND_REMARKS;
+        saveSession(phone, session);
+        await replyText(
+          phone,
+          `Enter *extension remarks* (e.g. ${EXTN_REASONS[reason]}):`
+        );
+        break;
+      }
+
+      case STATES.EXTEND_REMARKS:
+        if (!text) {
+          await replyText(phone, "Remarks are required. Please enter extension remarks:");
+          break;
+        }
+        session.draft.extend.extnRemarks = text;
+        saveSession(phone, session);
+        try {
+          session = await executeExtendValidity(phone, session);
+        } catch (err) {
+          await replyText(phone, `❌ ${err.message}`);
+          session.state = STATES.MENU;
+          session.draft.extend = {};
+          saveSession(phone, session);
+          await sendMainMenu(phone, session.auth.username);
+        }
+        break;
+
+      case STATES.UPDATE_TRANSPORTER_EWB: {
+        const parsed = parseEwbInput(text);
+        if (parsed.error) {
+          await replyText(phone, `❌ ${parsed.error}`);
+          break;
+        }
+
+        await replyText(phone, "⏳ Verifying e-Way Bill number…");
+        try {
+          session = (await ensureWhatsAppEwbToken(phone)) || session;
+          await verifyEwayBillNumber(parsed.digits, session.auth.access_token);
+        } catch (err) {
+          const msg =
+            err.code === "EWB_NOT_FOUND" || err.message === EWB_INCORRECT_MESSAGE
+              ? EWB_INCORRECT_MESSAGE
+              : err.message;
+          await replyText(phone, `❌ ${msg}`);
+          break;
+        }
+
+        session.draft.transporter.ewbNo = parsed.digits;
+        session.state = STATES.UPDATE_TRANSPORTER_ID;
+        saveSession(phone, session);
+        await replyText(phone, "Enter *Transporter ID* (15-character GSTIN or TRANSIN):");
+        break;
+      }
+
+      case STATES.UPDATE_TRANSPORTER_ID: {
+        const transporterId = normalizeTransporterId(text);
+        if (!validateTransporterId(transporterId)) {
+          await replyText(
+            phone,
+            "Invalid transporter ID. Enter a 15-character GSTIN or TRANSIN:"
+          );
+          break;
+        }
+        session.draft.transporter.transporterId = transporterId;
+        saveSession(phone, session);
+        session = await executeUpdateTransporter(phone, session);
+        break;
+      }
 
       case STATES.PART_B_EWB: {
         const parsed = parseEwbInput(text);

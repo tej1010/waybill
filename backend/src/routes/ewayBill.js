@@ -1,68 +1,19 @@
 import { Router } from "express";
-import { callEwayBillApi, parseEwayBillResult } from "../services/ewayBillClient.js";
 import { fetchEwayBillDetails } from "../services/fetchEwayBill.js";
 import { buildEwayBillPdfBuffer } from "../services/ewayBillPdfFlow.js";
 import { renderEwayBillHtml } from "../services/ewayBillHtml.js";
 import { recordEwbOperation } from "../db/ewbOperations.js";
 import { logger } from "../utils/logger.js";
 import { userContextFromRequest } from "../utils/requestUser.js";
+import { extendEwayBillValidity } from "../services/extendValidity.js";
 import { updatePartBVehicle } from "../services/updatePartB.js";
+import { updateTransporter } from "../services/updateTransporter.js";
 import { EWB_INCORRECT_MESSAGE, validateEwbNumber } from "../utils/ewbNumber.js";
 
 const router = Router();
 
 function getEwbToken(req) {
   return req.headers.authorization?.trim();
-}
-
-function validateExtendBody(body, ewbNo) {
-  const required = [
-    "fromPlace",
-    "fromState",
-    "fromPincode",
-    "remainingDistance",
-    "transMode",
-    "extnRsnCode",
-    "extnRemarks",
-  ];
-  for (const field of required) {
-    if (body[field] === undefined || body[field] === "") {
-      return `${field} is required`;
-    }
-  }
-  const ewbError = validateEwbNumber(ewbNo);
-  if (ewbError) return ewbError;
-  if (
-    body.transDocDate &&
-    !/^[0-3][0-9]\/[0-1][0-9]\/[2][0][0-9]{2}$/.test(body.transDocDate)
-  ) {
-    return "transDocDate must be DD/MM/YYYY";
-  }
-  return null;
-}
-
-function buildExtendPayload(body, ewbNo) {
-  const payload = {
-    ewbNo: Number(body.ewbNo ?? ewbNo),
-    fromPlace: String(body.fromPlace).trim(),
-    fromState: Number(body.fromState),
-    fromPincode: Number(body.fromPincode),
-    remainingDistance: Number(body.remainingDistance),
-    transMode: String(body.transMode).trim(),
-    extnRsnCode: Number(body.extnRsnCode),
-    extnRemarks: String(body.extnRemarks).trim(),
-  };
-
-  if (body.vehicleNo?.trim()) payload.vehicleNo = body.vehicleNo.trim().toUpperCase();
-  if (body.transDocNo?.trim()) payload.transDocNo = body.transDocNo.trim();
-  if (body.transDocDate?.trim()) payload.transDocDate = body.transDocDate.trim();
-  if (body.consignmentStatus?.trim()) payload.consignmentStatus = body.consignmentStatus.trim();
-  if (body.transitType?.trim()) payload.transitType = body.transitType.trim();
-  if (body.addressLine1?.trim()) payload.addressLine1 = body.addressLine1.trim();
-  if (body.addressLine2?.trim()) payload.addressLine2 = body.addressLine2.trim();
-  if (body.addressLine3?.trim()) payload.addressLine3 = body.addressLine3.trim();
-
-  return payload;
 }
 
 router.get("/:ewbNo/html", async (req, res) => {
@@ -180,6 +131,53 @@ router.put("/:ewbNo/vehicle", async (req, res) => {
   }
 });
 
+router.put("/:ewbNo/transporter", async (req, res) => {
+  const ewbToken = getEwbToken(req);
+  if (!ewbToken) {
+    return res.status(401).json({
+      message: "E-Way Bill access token required in Authorization header",
+    });
+  }
+
+  const { ewbNo } = req.params;
+
+  try {
+    const result = await updateTransporter(ewbNo, ewbToken, req.body);
+
+    let pdfGenerated = false;
+    try {
+      await buildEwayBillPdfBuffer(ewbNo, ewbToken);
+      pdfGenerated = true;
+    } catch (pdfErr) {
+      logger.warn("eway-pdf", "PDF prefetch after transporter update failed", {
+        message: pdfErr.message,
+        ewbNo,
+      });
+    }
+
+    const user = userContextFromRequest(req);
+    await recordEwbOperation({
+      username: user.username,
+      gstin: user.gstin,
+      ewbNo,
+      operationType: "update_transporter",
+      source: "web",
+    });
+
+    return res.json({
+      ...result,
+      pdfUrl: `/api/eway-bill/${ewbNo}/pdf`,
+      pdfGenerated,
+    });
+  } catch (err) {
+    logger.error("eway-bill", "Update transporter error", { message: err.message });
+    return res.status(err.status || 502).json({
+      message: err.message || "Unable to update transporter",
+      details: err.data,
+    });
+  }
+});
+
 router.post("/:ewbNo/extend", async (req, res) => {
   const ewbToken = getEwbToken(req);
   if (!ewbToken) {
@@ -189,39 +187,9 @@ router.post("/:ewbNo/extend", async (req, res) => {
   }
 
   const { ewbNo } = req.params;
-  const validationError = validateExtendBody(req.body, ewbNo);
-  if (validationError) {
-    logger.warn("eway-bill", "Extend validation failed", { reason: validationError });
-    return res.status(400).json({ message: validationError });
-  }
-
-  const payload = buildExtendPayload(req.body, ewbNo);
 
   try {
-    const { response, data } = await callEwayBillApi({
-      method: "POST",
-      path: `/gst/compliance/e-way-bill/consignor/bill/${ewbNo}/extend`,
-      ewbAccessToken: ewbToken,
-      body: payload,
-    });
-
-    const { ok, errorCode, result } = parseEwayBillResult(data);
-
-    if (!response.ok) {
-      return res.status(response.status).json({
-        message: data.message || "Failed to extend validity",
-        details: data,
-      });
-    }
-
-    if (!ok) {
-      return res.status(400).json({
-        message: errorCode
-          ? `Extension failed (error ${String(errorCode).replace(/,$/, "")})`
-          : "Failed to extend e-Way Bill validity",
-        details: data,
-      });
-    }
+    const result = await extendEwayBillValidity(ewbNo, ewbToken, req.body);
 
     const user = userContextFromRequest(req);
     await recordEwbOperation({
@@ -233,17 +201,14 @@ router.post("/:ewbNo/extend", async (req, res) => {
     });
 
     return res.json({
-      ewayBillNo: result?.data?.ewayBillNo,
-      updatedDate: result?.data?.updatedDate,
-      validUpto: result?.data?.validUpto,
-      alert: result?.alert,
-      transaction_id: data.transaction_id,
+      ...result,
       pdfUrl: `/api/eway-bill/${ewbNo}/pdf`,
     });
   } catch (err) {
     logger.error("eway-bill", "Extend validity error", { message: err.message });
     return res.status(err.status || 502).json({
       message: err.message || "Unable to extend validity",
+      details: err.data,
     });
   }
 });

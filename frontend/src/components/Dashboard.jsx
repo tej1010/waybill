@@ -1,6 +1,7 @@
 import { clearStoredAuth, ensureValidAuth } from "../api/auth.js";
 import DownloadPdfCard from "./DownloadPdfCard.jsx";
 import ExtendValidityForm from "./ExtendValidityForm.jsx";
+import UpdateTransporterForm from "./UpdateTransporterForm.jsx";
 import UpdateVehicleForm from "./UpdateVehicleForm.jsx";
 
 function formatExpiry(expiry) {
@@ -43,6 +44,7 @@ export default function Dashboard({ auth, onLogout, onAuthUpdate }) {
       </dl>
 
       <UpdateVehicleForm getAccessToken={resolveAccessToken} user={auth} />
+      <UpdateTransporterForm getAccessToken={resolveAccessToken} user={auth} />
       <ExtendValidityForm getAccessToken={resolveAccessToken} user={auth} />
       <DownloadPdfCard getAccessToken={resolveAccessToken} />
     </div>
